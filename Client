@@ -23,7 +23,7 @@ class ChatClient:
         
         tk.Label(self.root, text="Сервер:").pack()
         self.host_entry = tk.Entry(self.root)
-        self.host_entry.insert(0, "127.0.0.1")
+        self.host_entry.insert(0, "0.0.0.0")
         self.host_entry.pack(pady=5)
         
         tk.Label(self.root, text="Порт:").pack()
