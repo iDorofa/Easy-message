@@ -1,0 +1,135 @@
+import tkinter as tk
+from tkinter import scrolledtext, messagebox
+import socket, threading, json
+
+class ChatClient:
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("Мессенджер")
+        self.root.geometry("500x600")
+        self.socket = None
+        self.connected = False
+        self.create_login()
+        
+    def create_login(self):
+        for w in self.root.winfo_children(): w.destroy()
+        
+        tk.Label(self.root, text="Чат", font=("Arial", 16)).pack(pady=20)
+        
+        tk.Label(self.root, text="Ник:").pack()
+        self.nick_entry = tk.Entry(self.root)
+        self.nick_entry.pack(pady=5)
+        self.nick_entry.bind('<Return>', lambda e: self.connect())
+        
+        tk.Label(self.root, text="Сервер:").pack()
+        self.host_entry = tk.Entry(self.root)
+        self.host_entry.insert(0, "127.0.0.1")
+        self.host_entry.pack(pady=5)
+        
+        tk.Label(self.root, text="Порт:").pack()
+        self.port_entry = tk.Entry(self.root)
+        self.port_entry.insert(0, "5555")
+        self.port_entry.pack(pady=5)
+        
+        tk.Button(self.root, text="Подключиться", bg="green", fg="white",
+                 command=self.connect).pack(pady=20)
+    
+    def connect(self):
+        try:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.connect((self.host_entry.get(), int(self.port_entry.get())))
+            self.socket.send(json.dumps({'nickname': self.nick_entry.get()}).encode())
+            
+            response = json.loads(self.socket.recv(1024).decode())
+            if response.get('type') == 'error':
+                messagebox.showerror("Ошибка", response['message'])
+                self.socket.close()
+                return
+            
+            self.nick = self.nick_entry.get()
+            self.connected = True
+            self.create_chat()
+            threading.Thread(target=self.receive, daemon=True).start()
+        except:
+            messagebox.showerror("Ошибка", "Не удалось подключиться")
+    
+    def create_chat(self):
+        for w in self.root.winfo_children(): w.destroy()
+        
+        # Верхняя панель
+        top = tk.Frame(self.root, bg="blue", height=40)
+        top.pack(fill=tk.X)
+        tk.Label(top, text=f"Вы: {self.nick}", bg="blue", fg="white").pack(side=tk.LEFT, padx=10)
+        tk.Button(top, text="Выйти", bg="red", fg="white", 
+                 command=self.disconnect).pack(side=tk.RIGHT, padx=10)
+        
+        # Область сообщений
+        self.msg_area = scrolledtext.ScrolledText(self.root, state='disabled')
+        self.msg_area.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Нижняя панель
+        bottom = tk.Frame(self.root)
+        bottom.pack(fill=tk.X, padx=10, pady=10)
+        self.entry = tk.Entry(bottom)
+        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.entry.bind('<Return>', lambda e: self.send())
+        tk.Button(bottom, text="Отправить", command=self.send).pack(side=tk.RIGHT)
+    
+    def receive(self):
+        while self.connected:
+            try:
+                data = json.loads(self.socket.recv(1024).decode())
+                self.root.after(0, self.display_message, data)
+            except:
+                break
+    
+    def display_message(self, data):
+        self.msg_area.config(state='normal')
+        
+        if data['type'] == 'system':
+            self.msg_area.insert(tk.END, f"🔔 {data['message']}\n", 'system')
+            self.msg_area.tag_config('system', foreground='blue')
+        else:
+            # Определяем, свое сообщение или чужое
+            if data['nickname'] == self.nick:
+                prefix = f"Я ({data['nickname']}): "
+                color = 'green'
+            else:
+                prefix = f"{data['nickname']}: "
+                color = 'red'
+            
+            self.msg_area.insert(tk.END, prefix, color)
+            self.msg_area.insert(tk.END, f"{data['message']}\n")
+            self.msg_area.tag_config('green', foreground='green')
+            self.msg_area.tag_config('red', foreground='red')
+        
+        self.msg_area.see(tk.END)
+        self.msg_area.config(state='disabled')
+    
+    def send(self):
+        msg = self.entry.get()
+        if msg and self.connected:
+            # Отправляем на сервер
+            self.socket.send(json.dumps({'type':'message','message':msg}).encode())
+            
+            # Сразу отображаем свое сообщение локально
+            self.msg_area.config(state='normal')
+            self.msg_area.insert(tk.END, f"Я ({self.nick}): ", 'green')
+            self.msg_area.insert(tk.END, f"{msg}\n")
+            self.msg_area.tag_config('green', foreground='green')
+            self.msg_area.see(tk.END)
+            self.msg_area.config(state='disabled')
+            
+            self.entry.delete(0, tk.END)
+    
+    def disconnect(self):
+        self.connected = False
+        if self.socket:
+            self.socket.close()
+        self.create_login()
+    
+    def run(self):
+        self.root.mainloop()
+
+if __name__ == "__main__":
+    ChatClient().run()
