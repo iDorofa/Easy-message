@@ -1,0 +1,59 @@
+import socket, threading, json, datetime
+
+class ChatServer:
+    def __init__(self, host='127.0.0.1', port=5555):
+        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server.bind((host, port))
+        self.server.listen(5)
+        self.clients = {}  # сокет -> ник
+        print(f"Сервер запущен на {host}:{port}")
+        
+    def broadcast(self, message, sender=None):
+        for client in list(self.clients.keys()):
+            if client != sender:
+                try: client.send(message.encode())
+                except: self.remove_client(client)
+    
+    def remove_client(self, client):
+        if client in self.clients:
+            nick = self.clients[client]
+            del self.clients[client]
+            client.close()
+            self.broadcast(json.dumps({'type':'system', 'message':f'{nick} покинул чат'}))
+    
+    def handle_client(self, client, addr):
+        try:
+            data = json.loads(client.recv(1024).decode())
+            nick = data['nickname']
+            
+            if nick in self.clients.values():
+                client.send(json.dumps({'type':'error','message':'Ник занят'}).encode())
+                client.close()
+                return
+            
+            self.clients[client] = nick
+            print(f"{nick} подключился")
+            
+            client.send(json.dumps({'type':'system','message':f'Добро пожаловать, {nick}!'}).encode())
+            self.broadcast(json.dumps({'type':'system','message':f'{nick} присоединился'}), client)
+            
+            while True:
+                msg = client.recv(1024).decode()
+                if not msg: break
+                data = json.loads(msg)
+                if data['type'] == 'message':
+                    self.broadcast(json.dumps({
+                        'type':'message','nickname':nick,
+                        'message':data['message']
+                    }), client)
+        except:
+            self.remove_client(client)
+    
+    def start(self):
+        while True:
+            client, addr = self.server.accept()
+            threading.Thread(target=self.handle_client, args=(client, addr)).start()
+
+if __name__ == "__main__":
+    ChatServer().start()
